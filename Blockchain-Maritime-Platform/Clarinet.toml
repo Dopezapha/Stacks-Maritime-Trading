@@ -10,8 +10,18 @@ path = 'contracts/Clarity-Maritime-Trading.clar'
 clarity_version = 2
 epoch = 2.5
 
+[contracts.Stacks-Customs-Compliance]
+path = 'contracts/Stacks-Customs-Compliance.clar'
+clarity_version = 2
+epoch = 2.5
+
 [contracts.Stacks-Oracle]
 path = 'contracts/Stacks-Oracle.clar'
+clarity_version = 2
+epoch = 2.5
+
+[contracts.maritime-trade-trait]
+path = 'contracts/maritime-trade-trait.clar'
 clarity_version = 2
 epoch = 2.5
 [repl.analysis]

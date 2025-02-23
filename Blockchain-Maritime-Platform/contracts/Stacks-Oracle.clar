@@ -1,5 +1,8 @@
 ;; GPS Oracle Contract for Maritime Trading Platform
 
+;; Import the maritime trade trait
+(use-trait maritime-trade-trait .maritime-trade-trait.maritime-trade-trait)
+
 ;; Constants
 (define-constant contract-administrator tx-sender)
 (define-constant ERR_ADMINISTRATOR_ONLY (err u100))
@@ -23,17 +26,17 @@
     {
         geofence-latitude: int,
         geofence-longitude: int,
-        geofence-radius: uint,  ;; in meters
-        geofence-category: (string-ascii 20)  ;; e.g., "port", "trading", "restricted"
+        geofence-radius: uint,
+        geofence-category: (string-utf8 20)
     }
 )
 
 ;; Input Validation Functions
-(define-private (validate-geofence-category (geofence-category (string-ascii 20)))
+(define-private (validate-geofence-category (geofence-category (string-utf8 20)))
     (or
-        (is-eq geofence-category "port")
-        (is-eq geofence-category "trading")
-        (is-eq geofence-category "restricted")
+        (is-eq geofence-category u"port")
+        (is-eq geofence-category u"trading")
+        (is-eq geofence-category u"restricted")
     )
 )
 
@@ -50,8 +53,6 @@
     (longitude1 int) 
     (latitude2 int) 
     (longitude2 int))
-    ;; Simplified distance calculation using Manhattan distance
-    ;; Returns approximate distance in coordinate units
     (let
         (
             (latitude-difference (if (> latitude2 latitude1)
@@ -68,19 +69,11 @@
 ;; Public Functions
 (define-public (register-gps-oracle (oracle-address principal))
     (begin
-        ;; Check that caller is contract administrator
         (asserts! (is-eq tx-sender contract-administrator) ERR_ADMINISTRATOR_ONLY)
-        
-        ;; Verify oracle is not tx-sender
         (asserts! (not (is-eq oracle-address tx-sender)) ERR_INVALID_ORACLE_ADDRESS)
-        
-        ;; Check oracle is not null/zero address
-        (asserts! (not (is-eq oracle-address 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)) ERR_INVALID_ORACLE_ADDRESS)
-        
-        ;; Check if oracle is already registered
+        (asserts! (not (is-eq oracle-address contract-administrator)) ERR_INVALID_ORACLE_ADDRESS)
         (asserts! (is-none (map-get? gps-oracle-registry {oracle-address: oracle-address})) ERR_ORACLE_ALREADY_REGISTERED)
         
-        ;; If all checks pass, register the oracle
         (ok (map-set gps-oracle-registry
             {oracle-address: oracle-address}
             {oracle-active-status: true}
@@ -91,28 +84,28 @@
 (define-public (update-vessel-position
     (vessel-identifier (string-utf8 36))
     (updated-latitude int)
-    (updated-longitude int))
+    (updated-longitude int)
+    (maritime-contract <maritime-trade-trait>))
     (let
         ((oracle-address tx-sender))
-        ;; Input validation
-        (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
-        (asserts! (is-some (map-get? gps-oracle-registry {oracle-address: oracle-address})) ERR_UNAUTHORIZED_GPS_ORACLE)
-        
-        ;; Coordinate validation
-        (asserts! (and 
-            (>= updated-latitude (* -90 1000000))
-            (<= updated-latitude (* 90 1000000))
-            (>= updated-longitude (* -180 1000000))
-            (<= updated-longitude (* 180 1000000))
-        ) ERR_INVALID_GPS_COORDINATES)
-        
-        ;; Update location in the main contract
-        (contract-call? 
-            .Maritime-Trading 
-            update-vessel-location 
-            vessel-identifier 
-            updated-latitude 
-            updated-longitude
+        (begin
+            (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
+            (asserts! (is-some (map-get? gps-oracle-registry {oracle-address: oracle-address})) ERR_UNAUTHORIZED_GPS_ORACLE)
+            
+            (asserts! (and 
+                (>= updated-latitude (* -90 1000000))
+                (<= updated-latitude (* 90 1000000))
+                (>= updated-longitude (* -180 1000000))
+                (<= updated-longitude (* 180 1000000))
+            ) ERR_INVALID_GPS_COORDINATES)
+            
+            (asserts! (is-some (some (contract-of maritime-contract))) ERR_INVALID_INPUT_PARAMETER)
+            (try! (contract-call? maritime-contract 
+                update-vessel-location 
+                vessel-identifier 
+                updated-latitude 
+                updated-longitude))
+            (ok true)
         )
     )
 )
@@ -122,10 +115,9 @@
     (geofence-latitude int)
     (geofence-longitude int)
     (geofence-radius uint)
-    (geofence-category (string-ascii 20)))
+    (geofence-category (string-utf8 20)))
     (begin
         (asserts! (is-eq tx-sender contract-administrator) ERR_ADMINISTRATOR_ONLY)
-        ;; Input validation
         (asserts! (validate-identifier-length geofence-identifier) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (validate-geofence-category geofence-category) ERR_INVALID_GEOFENCE_TYPE)
         (asserts! (> geofence-radius u0) ERR_INVALID_INPUT_PARAMETER)
@@ -136,7 +128,7 @@
             (<= geofence-longitude (* 180 1000000))
         ) ERR_INVALID_GPS_COORDINATES)
         
-        (map-set maritime-geofence-zones
+        (ok (map-set maritime-geofence-zones
             {geofence-identifier: geofence-identifier}
             {
                 geofence-latitude: geofence-latitude,
@@ -144,8 +136,7 @@
                 geofence-radius: geofence-radius,
                 geofence-category: geofence-category
             }
-        )
-        (ok true)
+        ))
     )
 )
 

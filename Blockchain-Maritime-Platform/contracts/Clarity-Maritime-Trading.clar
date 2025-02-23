@@ -20,7 +20,7 @@
 
 (define-private (validate-registration-number (registration-number (string-utf8 50)))
     (and 
-        (>= (len registration-number) u5)  ;; Minimum length for registration numbers
+        (>= (len registration-number) u5)
         (<= (len registration-number) u50)
     )
 )
@@ -65,11 +65,14 @@
         cargo-category: (string-utf8 50),
         cargo-quantity: uint,
         contract-price: uint,
-        contract-status: (string-ascii 20),
+        contract-status: (string-utf8 20),
         delivery-location: {latitude: int, longitude: int},
         customs-clearance: bool
     }
 )
+
+;; Implement maritime-trade-trait
+(impl-trait .maritime-trade-trait.maritime-trade-trait)
 
 ;; Public Functions
 (define-public (register-maritime-vessel 
@@ -79,12 +82,10 @@
     (cargo-capacity uint))
     (begin
         (asserts! (is-eq tx-sender contract-administrator) ERR_ADMINISTRATOR_ONLY)
-        ;; Input validation
         (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (validate-registration-number vessel-registration) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (validate-vessel-category vessel-category) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (> cargo-capacity u0) ERR_INVALID_INPUT_PARAMETER)
-        ;; Check for duplicate vessel
         (asserts! (is-none (map-get? registered-vessels {vessel-identifier: vessel-identifier})) ERR_DUPLICATE_VESSEL_ID)
         
         (map-set registered-vessels
@@ -116,7 +117,6 @@
     (delivery-longitude int))
     (let
         ((selling-party tx-sender))
-        ;; Input validation
         (asserts! (validate-identifier-length trade-identifier) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (validate-cargo-category cargo-category) ERR_INVALID_INPUT_PARAMETER)
         (asserts! (and (> cargo-quantity u0) (> contract-price u0)) ERR_INVALID_INPUT_PARAMETER)
@@ -126,13 +126,11 @@
             (>= delivery-longitude (* -180 1000000))
             (<= delivery-longitude (* 180 1000000))
         ) ERR_INVALID_COORDINATES)
-        ;; Check vessel registration
         (asserts! (is-some (get-vessel-by-owner selling-party)) ERR_VESSEL_NOT_REGISTERED)
         (asserts! (is-some (get-vessel-by-owner buying-party)) ERR_VESSEL_NOT_REGISTERED)
-        ;; Check for duplicate trade agreement
         (asserts! (is-none (map-get? maritime-trade-contracts {trade-identifier: trade-identifier})) ERR_TRADE_ALREADY_EXISTS)
         
-        (map-set maritime-trade-contracts
+        (ok (map-set maritime-trade-contracts
             {trade-identifier: trade-identifier}
             {
                 selling-party: selling-party,
@@ -140,15 +138,44 @@
                 cargo-category: cargo-category,
                 cargo-quantity: cargo-quantity,
                 contract-price: contract-price,
-                contract-status: "pending",
+                contract-status: u"pending",
                 delivery-location: {
                     latitude: delivery-latitude,
                     longitude: delivery-longitude
                 },
                 customs-clearance: false
             }
-        )
-        (ok true)
+        ))
+    )
+)
+
+;; Required by maritime-trade-trait
+(define-public (get-trade-agreement (trade-identifier (string-utf8 36)))
+    (begin
+        (asserts! (validate-identifier-length trade-identifier) ERR_INVALID_INPUT_PARAMETER)
+        (ok (map-get? maritime-trade-contracts {trade-identifier: trade-identifier}))
+    )
+)
+
+(define-public (update-vessel-location 
+    (vessel-identifier (string-utf8 36))
+    (updated-latitude int)
+    (updated-longitude int))
+    (begin
+        (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
+        (asserts! (is-some (map-get? registered-vessels {vessel-identifier: vessel-identifier})) ERR_VESSEL_NOT_REGISTERED)
+        (asserts! (and 
+            (>= updated-latitude (* -90 1000000))
+            (<= updated-latitude (* 90 1000000))
+            (>= updated-longitude (* -180 1000000))
+            (<= updated-longitude (* 180 1000000))
+        ) ERR_INVALID_COORDINATES)
+        
+        (ok (map-set registered-vessels
+            {vessel-identifier: vessel-identifier}
+            (merge (unwrap-panic (map-get? registered-vessels {vessel-identifier: vessel-identifier}))
+                  {vessel-position: {latitude: updated-latitude, longitude: updated-longitude}})
+        ))
     )
 )
 
@@ -164,45 +191,5 @@
     (begin
         (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
         (ok (map-get? registered-vessels {vessel-identifier: vessel-identifier}))
-    )
-)
-
-(define-read-only (get-trade-contract (trade-identifier (string-utf8 36)))
-    (begin
-        (asserts! (validate-identifier-length trade-identifier) ERR_INVALID_INPUT_PARAMETER)
-        (ok (map-get? maritime-trade-contracts {trade-identifier: trade-identifier}))
-    )
-)
-
-;; Add location update function for GPS Oracle
-(define-public (update-vessel-position
-    (vessel-identifier (string-utf8 36))
-    (updated-latitude int)
-    (updated-longitude int))
-    (let
-        ((vessel-record (map-get? registered-vessels {vessel-identifier: vessel-identifier})))
-        ;; Input validation
-        (asserts! (validate-identifier-length vessel-identifier) ERR_INVALID_INPUT_PARAMETER)
-        (asserts! (is-some vessel-record) ERR_VESSEL_NOT_REGISTERED)
-        (asserts! (is-eq contract-caller .GPS-oracle) ERR_UNAUTHORIZED_ACCESS)
-        (asserts! (and 
-            (>= updated-latitude (* -90 1000000))
-            (<= updated-latitude (* 90 1000000))
-            (>= updated-longitude (* -180 1000000))
-            (<= updated-longitude (* 180 1000000))
-        ) ERR_INVALID_COORDINATES)
-        
-        (map-set registered-vessels
-            {vessel-identifier: vessel-identifier}
-            (merge (unwrap! vessel-record ERR_VESSEL_NOT_REGISTERED)
-                {vessel-position: 
-                    {
-                        latitude: updated-latitude,
-                        longitude: updated-longitude
-                    }
-                }
-            )
-        )
-        (ok true)
     )
 )
